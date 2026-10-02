@@ -1,0 +1,90 @@
+// IoT-Based Fish Mortality Risk Monitoring System (Without DO Sensor)
+// NodeMCU ESP8266 + Blynk + Sensors
+
+#define BLYNK_TEMPLATE_ID "YourTemplateID"
+#define BLYNK_TEMPLATE_NAME "FishMonitoring"
+#define BLYNK_AUTH_TOKEN "YourAuthToken"
+
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+#include <DHT.h>
+
+// WiFi Credentials
+char ssid[] = "YourSSID";
+char pass[] = "YourPassword";
+
+// Pins
+#define DHTPIN D4
+#define DHTTYPE DHT11
+#define TURBIDITY A0
+#define PH_SENSOR A0  // Shared via analog multiplexer if needed
+#define TRIG_PIN D6
+#define ECHO_PIN D7
+#define LEAK_PIN D3
+#define FLOAT_LOW D0
+#define FLOAT_HIGH D1
+#define BUZZER D8
+
+DHT dht(DHTPIN, DHTTYPE);
+BlynkTimer timer;
+
+void sendSensorData() {
+  float temp = dht.readTemperature();
+  float hum = dht.readHumidity();
+  int turbidity = analogRead(TURBIDITY);
+  int phRaw = analogRead(PH_SENSOR);
+  float ph = (phRaw / 1023.0) * 14.0; // Simulated
+  int leak = digitalRead(LEAK_PIN);
+  int floatLow = digitalRead(FLOAT_LOW);
+  int floatHigh = digitalRead(FLOAT_HIGH);
+
+  // Water level calculation (Ultrasonic)
+  long duration;
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  duration = pulseIn(ECHO_PIN, HIGH);
+  int waterLevel = duration * 0.034 / 2;
+
+  // Buzzer logic
+  bool alert = false;
+  if (ph < 6.0 || ph > 8.5 || waterLevel < 10 || leak == HIGH || turbidity > 700 || floatLow == LOW || floatHigh == HIGH) {
+    digitalWrite(BUZZER, HIGH);
+    alert = true;
+  } else {
+    digitalWrite(BUZZER, LOW);
+  }
+
+  // Send to Blynk
+  Blynk.virtualWrite(V0, temp);
+  Blynk.virtualWrite(V1, hum);
+  Blynk.virtualWrite(V2, waterLevel);
+  Blynk.virtualWrite(V3, ph);
+  Blynk.virtualWrite(V4, turbidity);
+  Blynk.virtualWrite(V5, leak);
+  Blynk.virtualWrite(V6, (floatLow == LOW) ? "Low" : (floatHigh == HIGH ? "Overflow" : "Normal"));
+  Blynk.virtualWrite(V7, alert ? "⚠️ Alert! Check Tank" : "✅ Normal");
+  Blynk.virtualWrite(V8, digitalRead(BUZZER));
+}
+
+void setup() {
+  Serial.begin(9600);
+  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
+  dht.begin();
+
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  pinMode(LEAK_PIN, INPUT);
+  pinMode(FLOAT_LOW, INPUT_PULLUP);
+  pinMode(FLOAT_HIGH, INPUT_PULLUP);
+  pinMode(BUZZER, OUTPUT);
+
+  timer.setInterval(3000L, sendSensorData);
+}
+
+void loop() {
+  Blynk.run();
+  timer.run();
+}
